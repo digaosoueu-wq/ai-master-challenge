@@ -9,6 +9,7 @@ antes de seguir. O Claude executou: análise, código, testes e git.
 | Arquivo | O que é |
 |---|---|
 | [`chat-exports/conversa-claude-code.md`](chat-exports/conversa-claude-code.md) | **A conversa completa**: minhas mensagens na íntegra, as respostas do Claude, as perguntas que ele me fez com as minhas escolhas, e cada ação executada (comandos, arquivos) |
+| [`chat-exports/conversa-claude-code-detalhada.md`](chat-exports/conversa-claude-code-detalhada.md) | A mesma conversa com **os comandos completos e as saídas das ferramentas**: cada teste rodando, cada erro aparecendo e sendo corrigido |
 | [`plano-inicial.md`](plano-inicial.md) | O plano que o Claude propôs e eu aprovei antes de qualquer código |
 | [`analises/01_explorar_backtest.py`](analises/01_explorar_backtest.py) | Primeira análise de validação, que mostrou que a lógica da v1 não se sustentava |
 | [`analises/02_explorar_atributos.py`](analises/02_explorar_atributos.py) | Teste de 14 atributos como previsores de vitória (todos ≈ sorteio) |
