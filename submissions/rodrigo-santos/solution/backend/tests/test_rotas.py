@@ -28,6 +28,12 @@ def test_detalhe_do_deal():
     assert deal["sugestao"]
 
 
+def test_detalhe_mostra_pontos_que_somam_o_score():
+    id_deal = cliente.get("/api/pipeline").json()["deals"][-1]["id"]
+    deal = cliente.get(f"/api/deals/{id_deal}").json()
+    assert sum(p["pontos"] for p in deal["partes"]) == deal["score"]
+
+
 def test_detalhe_de_deal_inexistente_retorna_404():
     assert cliente.get("/api/deals/NAOEXISTE").status_code == 404
 
@@ -37,19 +43,20 @@ def test_resumo_bate_com_pipeline():
     pipeline = cliente.get("/api/pipeline", params={"prioridade": "Alta"}).json()
     assert resumo["total_abertos"] == pipeline["total"]
     assert resumo["qtd_prioridade_alta"] == pipeline["total"]
-    assert 0 < resumo["taxa_vitoria"] < 1
+    assert resumo["qtd_parados"] == 0  # parado nunca é prioridade alta
 
 
 def test_regras_de_pontuacao():
     regras = cliente.get("/api/regras").json()
     assert sum(regras["pontos_maximos"].values()) == 100
     assert regras["limite_alta"] > regras["limite_media"]
+    assert regras["limite_dias"] == 138
 
 
-def test_detalhe_mostra_pontos_que_somam_o_score():
-    id_deal = cliente.get("/api/pipeline").json()["deals"][-1]["id"]
-    deal = cliente.get(f"/api/deals/{id_deal}").json()
-    assert sum(f["pontos"] for f in deal["fatores"]) == deal["score"]
+def test_validacao():
+    validacao = cliente.get("/api/validacao").json()
+    assert validacao["parados_fechados_depois"] == 0
+    assert len(validacao["atributos"]) >= 10
 
 
 def test_tela_compilada_e_servida_pela_api():

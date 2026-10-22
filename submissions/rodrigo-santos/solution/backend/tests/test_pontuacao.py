@@ -1,10 +1,14 @@
 """Testes do score e das explicações."""
 
+from app import config
 from app.servicos.estatisticas import calcular_estatisticas
 from app.servicos.pontuacao import (
+    PRIORIDADE_BAIXA,
+    SITUACAO_ATIVO,
+    SITUACAO_PARADO,
+    SITUACAO_PROSPECCAO,
     explicar_deal,
-    explicar_fatores,
-    pontos_maximos,
+    explicar_partes,
     pontuar_deals_abertos,
     sugerir_acao,
 )
@@ -22,46 +26,54 @@ def test_score_entre_0_e_100_e_ordenado():
     assert scores.is_monotonic_decreasing
 
 
-def test_fatores_entre_0_e_1():
-    deals = pontuar_deals_abertos()
-    for coluna in ["fator_chance", "fator_valor", "fator_tempo", "chance"]:
-        assert deals[coluna].between(0, 1).all(), coluna
+def test_pontos_maximos_somam_100():
+    assert sum(config.PONTOS_MAXIMOS.values()) == 100
 
 
-def test_deal_muito_parado_tem_fator_tempo_zero():
+def test_score_e_a_soma_dos_pontos_das_partes():
+    for _, deal in pontuar_deals_abertos().sample(200, random_state=1).iterrows():
+        partes = explicar_partes(deal)
+        assert sum(p.pontos for p in partes) == deal["score"]
+        assert all(0 <= p.pontos <= p.maximo for p in partes)
+
+
+def test_limite_e_o_negocio_mais_longo_do_historico():
+    # Nenhum negócio fechado (ganho ou perdido) ficou aberto mais de 138 dias.
+    assert calcular_estatisticas().limite_dias == 138
+
+
+def test_situacao_de_cada_negocio():
     estat = calcular_estatisticas()
     deals = pontuar_deals_abertos()
-    muito_parados = deals[deals["dias_aberto"] >= estat.ciclo_limite_dias]
-    assert not muito_parados.empty
-    assert (muito_parados["fator_tempo"] == 0).all()
+    prospeccao = deals[deals["deal_stage"] == "Prospecting"]
+    em_negociacao = deals[deals["deal_stage"] == "Engaging"]
+
+    assert (prospeccao["situacao"] == SITUACAO_PROSPECCAO).all()
+    assert (em_negociacao[em_negociacao["dias_aberto"] > estat.limite_dias]["situacao"] == SITUACAO_PARADO).all()
+    assert (em_negociacao[em_negociacao["dias_aberto"] <= estat.limite_dias]["situacao"] == SITUACAO_ATIVO).all()
 
 
-def test_todo_deal_tem_motivos_e_sugestao():
-    for _, deal in pontuar_deals_abertos().head(50).iterrows():
+def test_parado_e_sempre_baixa_e_nao_conta_no_valor_esperado():
+    parados = pontuar_deals_abertos().query("parado")
+    assert not parados.empty
+    assert (parados["prioridade"] == PRIORIDADE_BAIXA).all()
+    assert (parados["valor_esperado"] == 0).all()
+    assert (parados["pontos_situacao"] == 0).all()
+
+
+def test_parado_recebe_sugestao_de_atualizar_ou_encerrar():
+    deal = pontuar_deals_abertos().query("parado").iloc[0]
+    assert sugerir_acao(deal).startswith("Atualize ou encerre")
+
+
+def test_todo_deal_tem_motivos_sugestao_e_motivo_principal():
+    deals = pontuar_deals_abertos()
+    assert deals["motivo_principal"].str.len().gt(0).all()
+    for _, deal in deals.sample(100, random_state=2).iterrows():
         assert explicar_deal(deal), deal["opportunity_id"]
         assert sugerir_acao(deal)
 
 
-def test_deal_muito_parado_recebe_sugestao_de_reavaliar():
-    estat = calcular_estatisticas()
-    deals = pontuar_deals_abertos()
-    deal = deals[deals["dias_aberto"] >= estat.ciclo_limite_dias].iloc[0]
-    assert sugerir_acao(deal).startswith("Reavalie")
-
-
-def test_score_e_a_soma_dos_pontos_dos_fatores():
-    for _, deal in pontuar_deals_abertos().head(100).iterrows():
-        fatores = explicar_fatores(deal)
-        assert sum(f.pontos for f in fatores) == deal["score"]
-        assert all(0 <= f.pontos <= f.maximo for f in fatores)
-
-
-def test_pontos_maximos_somam_100():
-    assert sum(pontos_maximos().values()) == 100
-
-
-def test_motivo_principal_explica_nota_baixa_e_alta():
-    deals = pontuar_deals_abertos()
-    assert deals["motivo_principal"].str.len().gt(0).all()
-    # O pior deal deve ter um motivo negativo, nunca um elogio.
-    assert not deals.iloc[-1]["motivo_principal"].startswith(("Boa", "Alto", "Negociação no prazo"))
+def test_motivo_principal_de_prioridade_alta_nunca_e_negativo():
+    altas = pontuar_deals_abertos().query("prioridade == 'Alta'")
+    assert not altas["motivo_principal"].str.startswith(("Parado", "Valor baixo")).any()

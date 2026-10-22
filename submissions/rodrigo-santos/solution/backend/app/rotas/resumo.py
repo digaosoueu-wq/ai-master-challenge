@@ -1,9 +1,9 @@
-"""Rotas de apoio da tela: números do topo e opções de filtro."""
+"""Rotas de apoio da tela: números do topo, filtros, regras e validação do score."""
 
 from fastapi import APIRouter, Depends
 
-from app.esquemas import OpcoesFiltro, RegrasPontuacao, Resumo
-from app.servicos.consultas import Filtros, montar_resumo, opcoes_filtro
+from app.esquemas import OpcoesFiltro, RegrasPontuacao, Resumo, Validacao
+from app.servicos.consultas import Filtros, montar_resumo, opcoes_filtro, resumir_validacao
 from app.servicos.pontuacao import regras_pontuacao
 
 roteador = APIRouter(prefix="/api", tags=["resumo"])
@@ -25,3 +25,9 @@ def obter_opcoes_filtro():
 def obter_regras():
     """Como o score é calculado (pesos, faixas de prioridade e prazos)."""
     return regras_pontuacao()
+
+
+@roteador.get("/validacao", response_model=Validacao)
+def obter_validacao():
+    """Resultado do backtest: o score teria apontado os negócios certos no passado?"""
+    return resumir_validacao()

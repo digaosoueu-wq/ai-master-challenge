@@ -73,7 +73,7 @@ h1, h2, h3 { margin: 0; }
 .cartao-resumo .rotulo { color: var(--texto-suave); font-size: 0.85rem; }
 .cartao-resumo .dica { color: var(--texto-suave); font-size: 0.75rem; }
 .destaque-alta { border-left: 4px solid var(--alta); }
-.destaque-esfriando { border-left: 4px solid var(--alerta); }
+.destaque-parado { border-left: 4px solid var(--alerta); }
 
 /* --- Filtros ------------------------------------------------------------- */
 
@@ -103,7 +103,7 @@ h1, h2, h3 { margin: 0; }
 .cartao-deal .conta { font-size: 1rem; }
 .cartao-deal .produto, .cartao-deal .linha-rodape { font-size: 0.82rem; color: var(--texto-suave); }
 
-.alerta-esfriando { color: var(--alerta) !important; font-weight: 600; }
+.alerta-parado { color: var(--alerta) !important; font-weight: 600; }
 
 .botao-mais { width: 100%; margin-top: 10px; background: var(--superficie); border: 1px dashed var(--borda); border-radius: var(--raio); padding: 10px; color: var(--primaria); }
 
@@ -173,6 +173,7 @@ td.motivo-negativo, .motivo-cartao.motivo-negativo { color: var(--alerta); }
 .regras-fator h4 { margin: 0 0 6px; display: flex; justify-content: space-between; font-size: 0.95rem; }
 .regras-fator p { margin: 0; font-size: 0.88rem; color: var(--texto-suave); }
 .painel p.introducao { margin: 0; font-size: 0.92rem; }
+.evidencias { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem; }
 
 .dados { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 0.88rem; }
 .dados dt { color: var(--texto-suave); }

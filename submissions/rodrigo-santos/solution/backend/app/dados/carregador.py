@@ -61,7 +61,7 @@ def carregar_deals() -> pd.DataFrame:
     # "left" para não perder deals sem conta (muitos deals abertos não têm).
     deals = (
         pipeline
-        .merge(contas[["account", "sector", "office_location"]], on="account", how="left")
+        .merge(contas[["account", "sector", "office_location", "revenue", "employees"]], on="account", how="left")
         .merge(produtos[["product", "series", "sales_price"]], on="product", how="left")
         .merge(times, on="sales_agent", how="left")
     )

@@ -3,7 +3,7 @@
  * Os componentes nunca chamam fetch diretamente: usam as funções abaixo.
  */
 
-import type { DealDetalhe, Filtros, ListaDeals, OpcoesFiltro, RegrasPontuacao, Resumo } from "../tipos";
+import type { DealDetalhe, Filtros, ListaDeals, OpcoesFiltro, RegrasPontuacao, Resumo, Validacao } from "../tipos";
 
 // Em desenvolvimento o Vite repassa /api para o backend (ver vite.config.ts).
 const URL_BASE = "/api";
@@ -32,4 +32,5 @@ export const api = {
   deal: (id: string) => buscar<DealDetalhe>(`/deals/${encodeURIComponent(id)}`),
   opcoesFiltro: () => buscar<OpcoesFiltro>("/filtros"),
   regras: () => buscar<RegrasPontuacao>("/regras"),
+  validacao: () => buscar<Validacao>("/validacao"),
 };

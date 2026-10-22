@@ -3,15 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { DealResumo } from "../tipos";
-import { formatarDias, formatarMoeda, formatarPorcentagem, NOMES_ETAPA, tituloDeal } from "../utils/formatadores";
+import { formatarDias, formatarMoeda, NOMES_ETAPA, tituloDeal } from "../utils/formatadores";
 import SeloPrioridade from "./SeloPrioridade";
 
-type ColunaOrdenavel = "score" | "valor" | "valor_esperado" | "chance" | "dias_aberto";
+type ColunaOrdenavel = "score" | "valor" | "valor_esperado" | "dias_aberto";
 
 const COLUNAS: { chave: ColunaOrdenavel; rotulo: string }[] = [
   { chave: "score", rotulo: "Pontuação" },
   { chave: "valor", rotulo: "Valor" },
-  { chave: "chance", rotulo: "Chance" },
   { chave: "valor_esperado", rotulo: "Valor esperado" },
   { chave: "dias_aberto", rotulo: "Tempo aberto" },
 ];
@@ -72,10 +71,9 @@ export default function TabelaDeals({ deals, aoSelecionar }: Props) {
               </td>
               <td className="numero">{deal.score}</td>
               <td className="numero">{formatarMoeda(deal.valor)}</td>
-              <td className="numero">{formatarPorcentagem(deal.chance)}</td>
               <td className="numero">{formatarMoeda(deal.valor_esperado)}</td>
-              <td className={`numero ${deal.esfriando ? "alerta-esfriando" : ""}`}>
-                {deal.esfriando && "⚠ "}
+              <td className={`numero ${deal.parado ? "alerta-parado" : ""}`}>
+                {deal.parado && "⚠ "}
                 {formatarDias(deal.dias_aberto)}
               </td>
             </tr>

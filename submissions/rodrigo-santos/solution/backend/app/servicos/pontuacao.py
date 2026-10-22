@@ -1,23 +1,26 @@
 """
-Pontuação (score) dos deals abertos.
+Pontuação (score) dos negócios abertos.
 
-O score vai de 0 a 100 e combina três fatores, cada um entre 0 e 1:
+A lógica foi definida a partir da validação com o histórico
+(app/servicos/validacao.py), que mostrou duas coisas:
 
-1. CHANCE  — taxa de vitória histórica de deals parecidos (mesmo produto,
-             vendedor, setor e conta). Convertida em posição relativa entre
-             os deals abertos (1 = melhor chance do pipeline).
-2. VALOR   — preço do produto, em escala logarítmica (os preços vão de
-             US$ 55 a US$ 26.768; sem o log, só o produto mais caro importaria).
-3. TEMPO   — 1 se o deal está dentro do prazo normal de vendas; cai até 0
-             quando passa do tempo que quase nenhum deal ganho levou.
+1. Nenhum atributo do dataset (vendedor, produto, setor, conta, porte,
+   região...) prevê quem ganha melhor que o acaso. Por isso a "chance"
+   é a mesma para todos os negócios vivos: a taxa média da empresa.
+2. Nenhum negócio do histórico, ganho ou perdido, ficou aberto mais que
+   ~138 dias, e nenhum negócio que passou disso fechou depois. Esses
+   negócios estão "parados": provavelmente foram abandonados.
 
-    pontos de cada fator = peso × 100 × fator   (ex.: chance vale até 35 pontos)
-    score = soma dos pontos dos três fatores
+O score vai de 0 a 100 e é a soma de três partes:
 
-Todos os pesos e limites ficam em `app/config.py`.
+    SITUAÇÃO   (até 40) ativo = 40 · em prospecção = 20 · parado = 0
+    VALOR      (até 40) preço do produto em escala logarítmica
+                        (de US$ 55 a US$ 26.768; sem o log só o mais caro importaria)
+    RETA FINAL (até 20) para negócios ativos: quanto mais perto do prazo em que
+                        os negócios se resolvem, mais urgente conduzir à decisão
 
-Para trocar por um modelo de machine learning no futuro, basta manter a
-saída de `pontuar_deals_abertos()` (mesmas colunas).
+Negócio parado é sempre prioridade Baixa, com a ação "atualize ou encerre".
+Pontos e limites ficam em app/config.py.
 """
 
 from dataclasses import dataclass
@@ -27,128 +30,137 @@ import numpy as np
 import pandas as pd
 
 from app import config
-from app.dados.carregador import (
-    ETAPA_PROSPECCAO,
-    ETAPAS_ABERTAS,
-    carregar_deals,
-    obter_data_referencia,
-)
-from app.servicos.estatisticas import COLUNAS_DIMENSAO, EstatisticasHistoricas, calcular_estatisticas
+from app.dados.carregador import ETAPA_PROSPECCAO, ETAPAS_ABERTAS, carregar_deals, obter_data_referencia
+from app.servicos.estatisticas import EstatisticasHistoricas, calcular_estatisticas
 
 PRIORIDADE_ALTA = "Alta"
 PRIORIDADE_MEDIA = "Média"
 PRIORIDADE_BAIXA = "Baixa"
 
+SITUACAO_ATIVO = "ativo"
+SITUACAO_PROSPECCAO = "prospeccao"
+SITUACAO_PARADO = "parado"
+
+# Partes do score, na ordem em que aparecem para o vendedor.
+PARTES = ["situacao", "valor", "reta_final"]
+
+NOMES_PARTES = {
+    "situacao": "Situação do negócio",
+    "valor": "Valor do negócio",
+    "reta_final": "Reta final",
+}
+
+# A partir desta fração do prazo, o negócio ativo está "na reta final".
+INICIO_RETA_FINAL = 0.75
+
 
 # ---------------------------------------------------------------------------
-# Cálculo dos fatores
+# Cálculo do score
 # ---------------------------------------------------------------------------
 
-def _calcular_chance(deals: pd.DataFrame, estat: EstatisticasHistoricas) -> pd.Series:
-    """
-    Média ponderada das taxas de vitória de cada dimensão.
-    Dimensões sem informação (ex.: deal sem conta) são ignoradas e
-    o peso é redistribuído entre as demais.
-    """
-    soma_ponderada = pd.Series(0.0, index=deals.index)
-    soma_pesos = pd.Series(0.0, index=deals.index)
-
-    for dimensao, peso in config.PESOS_CHANCE.items():
-        taxa = deals[f"taxa_{dimensao}"]
-        tem_dado = taxa.notna()
-        soma_ponderada += taxa.fillna(0) * peso
-        soma_pesos += tem_dado * peso
-
-    # Se nenhuma dimensão tiver dado, usa a taxa geral da empresa.
-    return (soma_ponderada / soma_pesos.replace(0, np.nan)).fillna(estat.taxa_vitoria_geral)
+def _classificar_situacao(deals: pd.DataFrame, estat: EstatisticasHistoricas) -> pd.Series:
+    situacao = pd.Series(SITUACAO_ATIVO, index=deals.index)
+    situacao[deals["dias_aberto"] > estat.limite_dias] = SITUACAO_PARADO
+    situacao[deals["deal_stage"] == ETAPA_PROSPECCAO] = SITUACAO_PROSPECCAO
+    return situacao
 
 
-def _calcular_fator_valor(valor: pd.Series, estat: EstatisticasHistoricas) -> pd.Series:
-    """Normaliza o valor entre 0 e 1 em escala logarítmica."""
-    minimo, maximo = np.log(estat.preco_minimo), np.log(estat.preco_maximo)
-    return ((np.log(valor) - minimo) / (maximo - minimo)).clip(0, 1)
-
-
-def _calcular_fator_tempo(dias_aberto: pd.Series, estat: EstatisticasHistoricas) -> pd.Series:
-    """
-    1.0 até o ciclo normal, caindo linearmente até 0 no ciclo limite.
-    Deals sem data de início (prospecção) recebem o valor neutro.
-    """
-    normal, limite = estat.ciclo_normal_dias, estat.ciclo_limite_dias
-    fator = 1 - (dias_aberto - normal) / (limite - normal)
-    return fator.clip(0, 1).fillna(config.FATOR_TEMPO_NEUTRO)
-
-
-def _classificar_prioridade(score: float) -> str:
-    if score >= config.LIMITE_PRIORIDADE_ALTA:
+def _classificar_prioridade(deal: pd.Series) -> str:
+    if deal["parado"]:
+        return PRIORIDADE_BAIXA
+    if deal["score"] >= config.LIMITE_PRIORIDADE_ALTA:
         return PRIORIDADE_ALTA
-    if score >= config.LIMITE_PRIORIDADE_MEDIA:
+    if deal["score"] >= config.LIMITE_PRIORIDADE_MEDIA:
         return PRIORIDADE_MEDIA
     return PRIORIDADE_BAIXA
 
 
+def pontuar(deals: pd.DataFrame, estat: EstatisticasHistoricas, hoje: pd.Timestamp) -> pd.DataFrame:
+    """
+    Pontua os negócios recebidos, como se "hoje" fosse a data informada.
+
+    Função pura (não lê arquivos): a tela usa com todo o histórico, e a
+    validação usa com datas e estatísticas do passado.
+    """
+    deals = deals.copy()
+    deals["dias_aberto"] = (hoje - deals["engage_date"]).dt.days  # NaN em prospecção
+    deals["situacao"] = _classificar_situacao(deals, estat)
+    deals["parado"] = deals["situacao"] == SITUACAO_PARADO
+
+    # Fatores de 0 a 1.
+    deals["fator_situacao"] = deals["situacao"].map({
+        SITUACAO_ATIVO: 1.0,
+        SITUACAO_PROSPECCAO: config.FRACAO_SITUACAO_PROSPECCAO,
+        SITUACAO_PARADO: 0.0,
+    })
+    minimo, maximo = np.log(estat.preco_minimo), np.log(estat.preco_maximo)
+    deals["fator_valor"] = ((np.log(deals["sales_price"]) - minimo) / (maximo - minimo)).clip(0, 1)
+    deals["fator_reta_final"] = np.where(
+        deals["situacao"] == SITUACAO_ATIVO,
+        (deals["dias_aberto"] / estat.limite_dias).clip(0, 1),
+        0.0,
+    )
+
+    # Pontos de cada parte; o score é a soma dos pontos já arredondados,
+    # para que a conta mostrada ao vendedor feche exatamente.
+    for parte in PARTES:
+        deals[f"pontos_{parte}"] = (config.PONTOS_MAXIMOS[parte] * deals[f"fator_{parte}"]).round().astype(int)
+    deals["score"] = sum(deals[f"pontos_{parte}"] for parte in PARTES)
+    deals["prioridade"] = deals.apply(_classificar_prioridade, axis=1)
+
+    # Valor esperado: a chance é a média da empresa (nenhum atributo a
+    # diferenciou na validação), exceto para parados.
+    deals["valor"] = deals["sales_price"]
+    deals["chance"] = np.where(deals["parado"], config.CHANCE_PARADO, estat.taxa_vitoria_geral)
+    deals["valor_esperado"] = deals["chance"] * deals["valor"]
+
+    deals["motivo_principal"] = deals.apply(lambda d: motivo_principal(d, estat), axis=1)
+    return deals.sort_values(["score", "valor"], ascending=False).reset_index(drop=True)
+
+
 @lru_cache(maxsize=1)
 def pontuar_deals_abertos() -> pd.DataFrame:
-    """
-    Retorna os deals abertos (prospecção e negociação) com score,
-    prioridade e todos os fatores usados no cálculo, ordenados do
-    mais prioritário para o menos.
-    """
-    estat = calcular_estatisticas()
-    hoje = obter_data_referencia()
+    """Negócios abertos de hoje, pontuados e ordenados do mais para o menos prioritário."""
     deals = carregar_deals()
-    deals = deals[deals["deal_stage"].isin(ETAPAS_ABERTAS)].copy()
-
-    # Taxa histórica de cada dimensão (NaN quando não há informação).
-    for dimensao, coluna in COLUNAS_DIMENSAO.items():
-        deals[f"taxa_{dimensao}"] = deals[coluna].map(estat.taxas_por_dimensao[dimensao])
-    deals.loc[~deals["conta_informada"], "taxa_conta"] = np.nan
-
-    # Deals abertos ainda não têm valor fechado: usamos o preço de tabela.
-    deals["valor"] = deals["sales_price"]
-    deals["chance"] = _calcular_chance(deals, estat)
-    deals["valor_esperado"] = deals["chance"] * deals["valor"]
-    deals["dias_aberto"] = (hoje - deals["engage_date"]).dt.days  # NaN em prospecção
-
-    deals["fator_chance"] = deals["chance"].rank(pct=True)
-    deals["fator_valor"] = _calcular_fator_valor(deals["valor"], estat)
-    deals["fator_tempo"] = _calcular_fator_tempo(deals["dias_aberto"], estat)
-
-    # Pontos de cada fator (ex.: chance vale até 35 pontos). O score é a soma
-    # dos pontos já arredondados, para que a conta mostrada ao vendedor feche.
-    for fator in FATORES:
-        deals[f"pontos_{fator}"] = (pontos_maximos()[fator] * deals[f"fator_{fator}"]).round().astype(int)
-    deals["score"] = sum(deals[f"pontos_{fator}"] for fator in FATORES)
-
-    deals["prioridade"] = deals["score"].apply(_classificar_prioridade)
-    deals["esfriando"] = deals["dias_aberto"] > estat.ciclo_normal_dias
-    deals["motivo_principal"] = deals.apply(motivo_principal, axis=1)
-
-    return deals.sort_values(["score", "valor_esperado"], ascending=False).reset_index(drop=True)
+    abertos = deals[deals["deal_stage"].isin(ETAPAS_ABERTAS)]
+    return pontuar(abertos, calcular_estatisticas(), obter_data_referencia())
 
 
 # ---------------------------------------------------------------------------
-# Pontos por fator
+# Explicações em linguagem simples
 # ---------------------------------------------------------------------------
 
-# Ordem em que os fatores aparecem para o vendedor.
-FATORES = ["chance", "valor", "tempo"]
-
-NOMES_FATORES = {
-    "chance": "Chance de fechar",
-    "valor": "Valor do negócio",
-    "tempo": "Ritmo da negociação",
-}
+def _formatar_moeda(valor: float) -> str:
+    """Formata em dólar no padrão brasileiro: US$ 5.482."""
+    return "US$ " + f"{valor:,.0f}".replace(",", ".")
 
 
-def pontos_maximos() -> dict[str, int]:
-    """Quantos pontos (de 100) cada fator pode dar. Ex.: {"chance": 35, ...}"""
-    return {fator: round(peso * 100) for fator, peso in config.PESOS_SCORE.items()}
+def _na_reta_final(deal: pd.Series) -> bool:
+    return deal["situacao"] == SITUACAO_ATIVO and deal["fator_reta_final"] >= INICIO_RETA_FINAL
+
+
+def motivo_principal(deal: pd.Series, estat: EstatisticasHistoricas) -> str:
+    """Frase curta para o cartão: o ponto forte (prioridade alta) ou o que segurou a nota."""
+    valor = _formatar_moeda(deal["sales_price"])
+
+    if deal["parado"]:
+        return f"Parado há {deal['dias_aberto']:.0f} dias: fora do padrão"
+    if deal["prioridade"] == PRIORIDADE_ALTA:
+        if deal["fator_valor"] >= 0.65:
+            return f"Alto valor ({valor})"
+        if _na_reta_final(deal):
+            return f"Reta final: dia {deal['dias_aberto']:.0f} de até {estat.limite_dias}"
+        return f"Negociação ativa no prazo ({deal['dias_aberto']:.0f} dias)"
+    if deal["fator_valor"] < 0.5:
+        return f"Valor baixo ({valor})"
+    if deal["situacao"] == SITUACAO_PROSPECCAO:
+        return "Negociação ainda não começou"
+    return f"Início da negociação ({deal['dias_aberto']:.0f} dias)"
 
 
 @dataclass(frozen=True)
-class FatorExplicado:
-    """Quanto um fator contribuiu para o score e por quê."""
+class ParteExplicada:
+    """Quanto uma parte contribuiu para o score e por quê."""
 
     chave: str
     nome: str
@@ -157,85 +169,45 @@ class FatorExplicado:
     explicacao: str
 
 
-def explicar_fatores(deal: pd.Series) -> list[FatorExplicado]:
-    """Detalha os pontos de cada fator. A soma dos pontos é o score do deal."""
+def explicar_partes(deal: pd.Series) -> list[ParteExplicada]:
+    """Detalha os pontos de cada parte. A soma dos pontos é o score do negócio."""
     estat = calcular_estatisticas()
+    limite = estat.limite_dias
+    dias = deal["dias_aberto"]
 
-    if deal["deal_stage"] == ETAPA_PROSPECCAO:
-        texto_tempo = "Negociação ainda não começou: recebe nota neutra (metade dos pontos)"
-    else:
-        texto_tempo = (
-            f"Aberto há {deal['dias_aberto']:.0f} dias. Até {estat.ciclo_normal_dias} dias ganha "
-            f"todos os pontos; perde pontos depois disso e chega a zero com "
-            f"{estat.ciclo_limite_dias} dias"
+    if deal["situacao"] == SITUACAO_PROSPECCAO:
+        situacao = "Em prospecção: a negociação ainda não começou, por isso vale metade dos pontos"
+        reta = "Ainda não começou a contar: o prazo corre a partir do início da negociação"
+    elif deal["parado"]:
+        situacao = (
+            f"Aberto há {dias:.0f} dias. Nenhum negócio do histórico, ganho ou perdido, "
+            f"ficou aberto mais de {limite} dias: este provavelmente foi abandonado"
         )
+        reta = f"Já passou do prazo de {limite} dias"
+    else:
+        situacao = f"Em negociação há {dias:.0f} dias, dentro do prazo em que os negócios se resolvem (até {limite} dias)"
+        reta = f"Dia {dias:.0f} de até {limite}: quanto mais perto do prazo, mais urgente conduzir à decisão"
 
     explicacoes = {
-        "chance": (
-            f"Negócios parecidos fecharam {deal['chance']:.0%} das vezes. Melhor chance que "
-            f"{deal['fator_chance']:.0%} dos negócios abertos"
-        ),
+        "situacao": situacao,
         "valor": (
-            f"Preço de {_formatar_moeda(deal['valor'])}. Os produtos vão de "
+            f"Preço de {_formatar_moeda(deal['sales_price'])}. Os produtos vão de "
             f"{_formatar_moeda(estat.preco_minimo)} a {_formatar_moeda(estat.preco_maximo)}"
         ),
-        "tempo": texto_tempo,
+        "reta_final": reta,
     }
 
-    maximos = pontos_maximos()
     return [
-        FatorExplicado(
-            chave=fator,
-            nome=NOMES_FATORES[fator],
-            pontos=int(deal[f"pontos_{fator}"]),
-            maximo=maximos[fator],
-            explicacao=explicacoes[fator],
+        ParteExplicada(
+            chave=parte,
+            nome=NOMES_PARTES[parte],
+            pontos=int(deal[f"pontos_{parte}"]),
+            maximo=config.PONTOS_MAXIMOS[parte],
+            explicacao=explicacoes[parte],
         )
-        for fator in FATORES
+        for parte in PARTES
     ]
 
-
-def motivo_principal(deal: pd.Series) -> str:
-    """
-    Uma frase curta com o que mais explica a nota, para exibir no cartão:
-      - prioridade alta: o fator mais forte (por que vale a pena);
-      - demais: o fator que mais tirou pontos (por que a nota é baixa).
-    """
-    aproveitamento = {fator: deal[f"fator_{fator}"] for fator in FATORES}
-    alta = deal["prioridade"] == PRIORIDADE_ALTA
-    fator = max(aproveitamento, key=aproveitamento.get) if alta else min(aproveitamento, key=aproveitamento.get)
-    valor = _formatar_moeda(deal["valor"])
-
-    if fator == "chance":
-        return (f"Boa chance de fechar ({deal['chance']:.0%})" if alta
-                else f"Chance de fechar menor que a dos outros ({deal['chance']:.0%})")
-    if fator == "valor":
-        return f"Alto valor ({valor})" if alta else f"Valor baixo ({valor})"
-    if deal["deal_stage"] == ETAPA_PROSPECCAO:
-        return "Negociação ainda não começou"
-    return (f"Negociação no prazo ({deal['dias_aberto']:.0f} dias)" if alta
-            else f"Parado há {deal['dias_aberto']:.0f} dias")
-
-
-def regras_pontuacao() -> dict:
-    """Regras atuais do score, para a tela "Como funciona a pontuação"."""
-    estat = calcular_estatisticas()
-    return {
-        "pontos_maximos": pontos_maximos(),
-        "limite_alta": config.LIMITE_PRIORIDADE_ALTA,
-        "limite_media": config.LIMITE_PRIORIDADE_MEDIA,
-        "taxa_vitoria_geral": round(estat.taxa_vitoria_geral, 4),
-        "ciclo_mediano_dias": estat.ciclo_mediano_dias,
-        "ciclo_normal_dias": estat.ciclo_normal_dias,
-        "ciclo_limite_dias": estat.ciclo_limite_dias,
-        "preco_minimo": estat.preco_minimo,
-        "preco_maximo": estat.preco_maximo,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Explicação do score em linguagem simples
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class Motivo:
@@ -245,90 +217,80 @@ class Motivo:
     tipo: str  # "positivo", "negativo" ou "neutro"
 
 
-def _formatar_moeda(valor: float) -> str:
-    """Formata em dólar no padrão brasileiro: US$ 5.482."""
-    return "US$ " + f"{valor:,.0f}".replace(",", ".")
-
-
-def _motivo_taxa(rotulo: str, taxa: float, taxa_geral: float) -> Motivo | None:
-    """Gera um motivo se a taxa de vitória for bem diferente da média da empresa."""
-    if pd.isna(taxa):
-        return None
-    diferenca_pp = (taxa - taxa_geral) * 100
-    if abs(diferenca_pp) < config.DIFERENCA_RELEVANTE_PP:
-        return None
-    comparacao = "acima" if diferenca_pp > 0 else "abaixo"
-    return Motivo(
-        texto=f"Histórico {rotulo}: {taxa:.0%} de vitórias ({comparacao} da média de {taxa_geral:.0%})",
-        tipo="positivo" if diferenca_pp > 0 else "negativo",
-    )
-
-
 def explicar_deal(deal: pd.Series) -> list[Motivo]:
-    """Lista os motivos que explicam o score de um deal, do mais ao menos importante."""
+    """Lista os motivos que explicam o score de um negócio, do mais ao menos importante."""
     estat = calcular_estatisticas()
-    geral = estat.taxa_vitoria_geral
+    limite = estat.limite_dias
     motivos: list[Motivo] = []
 
-    # Tempo: é o sinal mais forte nos dados, por isso vem primeiro.
-    if deal["deal_stage"] == ETAPA_PROSPECCAO:
+    # Situação: o sinal mais forte encontrado nos dados.
+    if deal["parado"]:
+        motivos.append(Motivo(
+            f"Parado há {deal['dias_aberto']:.0f} dias: nenhum negócio do histórico ficou aberto "
+            f"mais de {limite} dias, e nenhum que passou disso foi fechado depois",
+            "negativo",
+        ))
+    elif deal["situacao"] == SITUACAO_PROSPECCAO:
         motivos.append(Motivo("Ainda em prospecção: a negociação não começou", "neutro"))
-    elif deal["dias_aberto"] >= estat.ciclo_limite_dias:
+    elif _na_reta_final(deal):
         motivos.append(Motivo(
-            f"Parado há {deal['dias_aberto']:.0f} dias: quase nenhum negócio ganho "
-            f"demorou mais de {estat.ciclo_limite_dias} dias",
-            "negativo",
-        ))
-    elif deal["esfriando"]:
-        motivos.append(Motivo(
-            f"Esfriando: aberto há {deal['dias_aberto']:.0f} dias "
-            f"(negócios ganhos costumam fechar em {estat.ciclo_mediano_dias})",
-            "negativo",
-        ))
-    else:
-        motivos.append(Motivo(
-            f"Negociação dentro do prazo normal ({deal['dias_aberto']:.0f} dias)",
+            f"Na reta final: está no dia {deal['dias_aberto']:.0f}, e os negócios se resolvem "
+            f"em até {limite} dias",
             "positivo",
         ))
+    else:
+        motivos.append(Motivo(f"Negociação ativa, dentro do prazo ({deal['dias_aberto']:.0f} dias)", "positivo"))
 
     # Valor.
-    valor = _formatar_moeda(deal["valor"])
+    valor = _formatar_moeda(deal["sales_price"])
     if deal["fator_valor"] >= 0.65:
         motivos.append(Motivo(f"Alto valor: {valor}", "positivo"))
-    elif deal["fator_valor"] <= 0.2:
+    elif deal["fator_valor"] < 0.5:
         motivos.append(Motivo(f"Valor baixo: {valor}", "negativo"))
 
-    # Taxas de vitória por dimensão.
-    rotulos = {
-        "vendedor": f"de {deal['sales_agent']}",
-        "produto": f"do produto {deal['product']}",
-        "setor": f"do setor {deal['sector']}",
-        "conta": f"da conta {deal['account']}",
-    }
-    for dimensao, rotulo in rotulos.items():
-        motivo = _motivo_taxa(rotulo, deal[f"taxa_{dimensao}"], geral)
-        if motivo:
-            motivos.append(motivo)
-
-    if not deal["conta_informada"]:
+    # Chance: igual para todos os negócios vivos (explicado para evitar "achismo").
+    if not deal["parado"]:
         motivos.append(Motivo(
-            "Conta não informada: cadastre a conta para uma análise mais precisa",
+            f"Chance de fechar: {estat.taxa_vitoria_geral:.0%}, a média da empresa. No histórico, "
+            "vendedor, produto, setor e conta não mudaram a chance de ganhar",
             "neutro",
         ))
+
+    if not deal["conta_informada"]:
+        motivos.append(Motivo("Conta não informada: complete o cadastro no CRM", "neutro"))
 
     return motivos
 
 
 def sugerir_acao(deal: pd.Series) -> str:
-    """Recomendação direta para o vendedor, baseada no score e no tempo parado."""
-    estat = calcular_estatisticas()
-
-    if deal["dias_aberto"] >= estat.ciclo_limite_dias:
-        return "Reavalie: este negócio está parado há muito tempo. Faça um último contato ou encerre."
+    """Recomendação direta para o vendedor."""
+    if deal["parado"]:
+        return (
+            "Atualize ou encerre: confirme com o cliente se ainda há interesse. "
+            "Se não houver, marque como perdido para limpar o pipeline."
+        )
     if deal["prioridade"] == PRIORIDADE_ALTA:
-        return "Priorize: boa chance de fechar e bom valor. Dedique tempo a este negócio agora."
-    if deal["esfriando"]:
-        return "Retome o contato logo: o negócio está esfriando."
+        if _na_reta_final(deal):
+            return "Priorize agora: negócio ativo perto do prazo de decisão. Conduza o cliente ao fechamento."
+        return "Priorize: negócio ativo, dentro do prazo e com valor relevante. Dedique tempo a ele agora."
+    if deal["situacao"] == SITUACAO_PROSPECCAO and deal["prioridade"] == PRIORIDADE_MEDIA:
+        return "Avance: faça o primeiro contato para iniciar a negociação."
     if deal["prioridade"] == PRIORIDADE_MEDIA:
         return "Mantenha o acompanhamento regular."
     return "Baixa prioridade: dedique tempo depois dos negócios prioritários."
+
+
+def regras_pontuacao() -> dict:
+    """Regras atuais do score, para a tela "Como funciona a pontuação"."""
+    estat = calcular_estatisticas()
+    return {
+        "pontos_maximos": config.PONTOS_MAXIMOS,
+        "pontos_prospeccao": round(config.PONTOS_MAXIMOS["situacao"] * config.FRACAO_SITUACAO_PROSPECCAO),
+        "limite_alta": config.LIMITE_PRIORIDADE_ALTA,
+        "limite_media": config.LIMITE_PRIORIDADE_MEDIA,
+        "taxa_vitoria_geral": round(estat.taxa_vitoria_geral, 4),
+        "ciclo_mediano_dias": estat.ciclo_mediano_dias,
+        "limite_dias": estat.limite_dias,
+        "preco_minimo": estat.preco_minimo,
+        "preco_maximo": estat.preco_maximo,
+    }

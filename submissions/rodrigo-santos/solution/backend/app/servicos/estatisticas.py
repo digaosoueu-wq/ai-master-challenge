@@ -1,7 +1,8 @@
 """
-Estatísticas históricas, calculadas a partir dos deals já fechados (ganhos ou perdidos).
+Estatísticas históricas, calculadas a partir dos negócios já fechados (ganhos ou perdidos).
 
-São a base do score: "como deals parecidos com este se saíram no passado?".
+São a régua do score: qual a taxa de vitória da empresa, quanto tempo os
+negócios levam para se resolver e qual a faixa de preços.
 """
 
 from dataclasses import dataclass
@@ -9,78 +10,47 @@ from functools import lru_cache
 
 import pandas as pd
 
-from app import config
 from app.dados.carregador import ETAPA_GANHO, ETAPAS_FECHADAS, carregar_deals
-
-# Mapeia cada dimensão do score para a coluna correspondente nos dados.
-COLUNAS_DIMENSAO = {
-    "produto": "product",
-    "vendedor": "sales_agent",
-    "setor": "sector",
-    "conta": "account",
-}
 
 
 @dataclass(frozen=True)
 class EstatisticasHistoricas:
-    """Resumo do histórico usado para pontuar os deals abertos."""
+    """Resumo do histórico usado para pontuar os negócios abertos."""
 
-    # Taxa de vitória da empresa toda (0 a 1).
+    # Taxa de vitória da empresa (0 a 1).
     taxa_vitoria_geral: float
 
-    # Taxa de vitória suavizada por valor, para cada dimensão.
-    # Ex.: taxas_por_dimensao["produto"]["GTX Pro"] -> 0.61
-    taxas_por_dimensao: dict[str, dict[str, float]]
+    # Dias entre o início da negociação e o fechamento.
+    ciclo_mediano_dias: int  # mediana dos negócios ganhos (o "normal")
+    limite_dias: int         # o mais longo do histórico, ganho ou perdido
 
-    # Ciclo de vendas dos deals ganhos (dias entre início e fechamento).
-    ciclo_mediano_dias: int  # o "normal" para exibir ao vendedor
-    ciclo_normal_dias: int   # até aqui o deal está no prazo
-    ciclo_limite_dias: int   # passou disso, quase nenhum deal foi ganho
-
-    # Faixa de preços dos produtos (para normalizar o fator valor).
+    # Faixa de preços dos produtos (para normalizar o valor).
     preco_minimo: float
     preco_maximo: float
 
 
-def _taxas_suavizadas(fechados: pd.DataFrame, coluna: str, taxa_geral: float) -> dict[str, float]:
+def calcular_estatisticas_de(fechados: pd.DataFrame, precos: pd.Series) -> EstatisticasHistoricas:
     """
-    Calcula a taxa de vitória de cada valor da coluna, puxando grupos
-    com poucos deals para perto da média geral (suavização bayesiana simples):
+    Calcula as estatísticas a partir de um conjunto de negócios fechados.
 
-        taxa = (ganhos + m * taxa_geral) / (total + m)
+    Recebe os dados como parâmetro (em vez de ler tudo) para que a validação
+    possa usar só o que já tinha fechado numa data do passado.
     """
-    m = config.SUAVIZACAO_AMOSTRAS
-    agrupado = fechados.groupby(coluna)["ganho"].agg(ganhos="sum", total="count")
-    taxas = (agrupado["ganhos"] + m * taxa_geral) / (agrupado["total"] + m)
-    return taxas.to_dict()
+    ganho = fechados["deal_stage"] == ETAPA_GANHO
+    duracao = (fechados["close_date"] - fechados["engage_date"]).dt.days
+
+    return EstatisticasHistoricas(
+        taxa_vitoria_geral=float(ganho.mean()),
+        ciclo_mediano_dias=int(duracao[ganho].median()),
+        limite_dias=int(duracao.max()),
+        preco_minimo=float(precos.min()),
+        preco_maximo=float(precos.max()),
+    )
 
 
 @lru_cache(maxsize=1)
 def calcular_estatisticas() -> EstatisticasHistoricas:
-    """Calcula (uma vez) as estatísticas históricas a partir dos deals fechados."""
+    """Estatísticas de todo o histórico (calculadas uma vez)."""
     deals = carregar_deals()
-
-    fechados = deals[deals["deal_stage"].isin(ETAPAS_FECHADAS)].copy()
-    fechados["ganho"] = fechados["deal_stage"] == ETAPA_GANHO
-    taxa_geral = float(fechados["ganho"].mean())
-
-    # Deals sem conta não entram na taxa por conta (não dizem nada sobre ela).
-    taxas = {}
-    for dimensao, coluna in COLUNAS_DIMENSAO.items():
-        base = fechados[fechados["conta_informada"]] if dimensao == "conta" else fechados
-        taxas[dimensao] = _taxas_suavizadas(base, coluna, taxa_geral)
-
-    ganhos = fechados[fechados["ganho"]]
-    ciclo = (ganhos["close_date"] - ganhos["engage_date"]).dt.days
-
-    precos = deals["sales_price"].dropna()
-
-    return EstatisticasHistoricas(
-        taxa_vitoria_geral=taxa_geral,
-        taxas_por_dimensao=taxas,
-        ciclo_mediano_dias=int(ciclo.median()),
-        ciclo_normal_dias=int(ciclo.quantile(config.PERCENTIL_CICLO_NORMAL)),
-        ciclo_limite_dias=int(ciclo.quantile(config.PERCENTIL_CICLO_LIMITE)),
-        preco_minimo=float(precos.min()),
-        preco_maximo=float(precos.max()),
-    )
+    fechados = deals[deals["deal_stage"].isin(ETAPAS_FECHADAS)]
+    return calcular_estatisticas_de(fechados, deals["sales_price"].dropna())

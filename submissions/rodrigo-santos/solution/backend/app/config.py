@@ -1,7 +1,7 @@
 """
 Configurações centrais da aplicação.
 
-Tudo que um dev ou gestor possa querer ajustar (caminhos, pesos do score,
+Tudo que um dev ou gestor possa querer ajustar (caminhos, pontos do score,
 faixas de prioridade) fica aqui, para não precisar mexer na lógica.
 """
 
@@ -32,47 +32,39 @@ PASTA_FRONTEND_COMPILADO = PASTA_RAIZ / "frontend" / "dist"
 DATA_REFERENCIA: date | None = None
 
 # ---------------------------------------------------------------------------
-# Score de prioridade
+# Score de prioridade (ver app/servicos/pontuacao.py e o relatório de validação)
 # ---------------------------------------------------------------------------
 
-# Peso de cada fator no score final (a soma deve ser 1.0).
-PESOS_SCORE = {
-    "chance": 0.35,  # chance histórica de fechar
-    "valor": 0.35,   # quanto o deal vale
-    "tempo": 0.30,   # se o deal está "fresco" ou parado há muito tempo
+# Pontos máximos de cada parte do score (a soma deve ser 100).
+PONTOS_MAXIMOS = {
+    "situacao": 40,    # o negócio está vivo? (em negociação, em prospecção ou parado)
+    "valor": 40,       # quanto o negócio vale
+    "reta_final": 20,  # quão perto está do prazo em que os negócios se resolvem
 }
 
-# Peso de cada dimensão no cálculo da chance de fechar.
-# Se a conta não estiver informada, os pesos restantes são redistribuídos.
-PESOS_CHANCE = {
-    "produto": 0.30,
-    "vendedor": 0.30,
-    "setor": 0.20,
-    "conta": 0.20,
-}
+# Fração dos pontos de situação que um negócio em prospecção recebe
+# (ainda não começou a negociação, então vale menos que um ativo).
+FRACAO_SITUACAO_PROSPECCAO = 0.5
 
-# Suavização das taxas de vitória: quantos deals "imaginários" com a taxa
-# média da empresa somamos a cada grupo. Evita que um vendedor com 2 deals
-# ganhos de 2 apareça com 100% de chance.
-SUAVIZACAO_AMOSTRAS = 20
+# Chance usada no valor esperado de negócios parados (abertos há mais tempo
+# que qualquer negócio do histórico). Na validação, nenhum deles fechou depois.
+CHANCE_PARADO = 0.0
 
-# Valor do fator tempo para deals em prospecção (ainda sem data de início).
-FATOR_TEMPO_NEUTRO = 0.5
-
-# Percentis do ciclo de vendas (dias entre início e fechamento dos deals
-# GANHOS) usados para avaliar se um deal está parado:
-#   - até o percentil "normal": tempo dentro do esperado (fator = 1)
-#   - a partir do percentil "limite": quase nenhum deal ganho demorou tanto (fator = 0)
-PERCENTIL_CICLO_NORMAL = 0.75
-PERCENTIL_CICLO_LIMITE = 0.98
-
-# Faixas de prioridade pelo score (0 a 100).
+# Faixas de prioridade pelo score (0 a 100). Negócio parado é sempre "Baixa".
 LIMITE_PRIORIDADE_ALTA = 60
 LIMITE_PRIORIDADE_MEDIA = 40
 
-# Diferença mínima (em pontos percentuais) entre uma taxa de vitória e a média
-# da empresa para que ela vire um "motivo" exibido ao vendedor.
-DIFERENCA_RELEVANTE_PP = 2.0
+# ---------------------------------------------------------------------------
+# Validação (backtest) — ver app/servicos/validacao.py
+# ---------------------------------------------------------------------------
+
+# Datas de corte: em cada uma, "voltamos no tempo", pontuamos os negócios que
+# estavam abertos naquele dia e comparamos com o que aconteceu depois.
+DATAS_CORTE_VALIDACAO = ["2017-05-01", "2017-07-01", "2017-09-01", "2017-11-01"]
+
+# Suavização das taxas de vitória testadas na validação: quantos negócios
+# "imaginários" com a taxa média somamos a cada grupo (evita 100% com 2 negócios).
+SUAVIZACAO_AMOSTRAS = 20
 
 # ---------------------------------------------------------------------------
 # API

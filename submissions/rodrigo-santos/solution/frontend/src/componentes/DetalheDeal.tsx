@@ -1,6 +1,6 @@
 /**
- * Painel lateral com o detalhe de um deal: o que fazer, por quê,
- * e quanto cada fator pesou na pontuação.
+ * Painel lateral com o detalhe de um negócio: o que fazer, por quê,
+ * e quantos pontos cada parte deu à nota.
  */
 
 import { useEffect, useState } from "react";
@@ -60,7 +60,7 @@ export default function DetalheDeal({ id, aoFechar }: Props) {
               <span>de 100 pontos</span>
             </div>
 
-            <div className={`sugestao sugestao-${deal.prioridade === "Alta" ? "alta" : deal.esfriando ? "alerta" : "neutra"}`}>
+            <div className={`sugestao sugestao-${deal.prioridade === "Alta" ? "alta" : deal.parado ? "alerta" : "neutra"}`}>
               <span className="rotulo">O que fazer</span>
               <p>{deal.sugestao}</p>
             </div>
@@ -76,31 +76,31 @@ export default function DetalheDeal({ id, aoFechar }: Props) {
 
             <h3>Como chegamos a {deal.score} pontos</h3>
             <div className="fatores">
-              {deal.fatores.map((fator) => (
-                <div key={fator.chave} className="fator">
+              {deal.partes.map((parte) => (
+                <div key={parte.chave} className="fator">
                   <div className="fator-titulo">
-                    <span>{fator.nome}</span>
+                    <span>{parte.nome}</span>
                     <strong>
-                      {fator.pontos} de {fator.maximo} pts
+                      {parte.pontos} de {parte.maximo} pts
                     </strong>
                   </div>
                   <div className="barra">
-                    <div className="barra-preenchida" style={{ width: `${(fator.pontos / fator.maximo) * 100}%` }} />
+                    <div className="barra-preenchida" style={{ width: `${(parte.pontos / parte.maximo) * 100}%` }} />
                   </div>
-                  <small>{fator.explicacao}</small>
+                  <small>{parte.explicacao}</small>
                 </div>
               ))}
               <div className="fator-total">
                 <span>Total</span>
                 <strong>
-                  {deal.fatores.map((f) => f.pontos).join(" + ")} = {deal.score} pontos
+                  {deal.partes.map((p) => p.pontos).join(" + ")} = {deal.score} pontos
                 </strong>
               </div>
             </div>
 
             <h3>Dados do negócio</h3>
             <dl className="dados">
-              <dt>Chance histórica</dt>
+              <dt>Chance de fechar</dt>
               <dd>{formatarPorcentagem(deal.chance)}</dd>
               <dt>Valor esperado</dt>
               <dd>{formatarMoeda(deal.valor_esperado)}</dd>

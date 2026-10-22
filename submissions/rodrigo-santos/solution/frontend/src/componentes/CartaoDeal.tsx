@@ -28,8 +28,8 @@ export default function CartaoDeal({ deal, aoSelecionar }: Props) {
       </span>
       <div className="linha-rodape">
         <span>{deal.vendedor}</span>
-        <span className={deal.esfriando ? "alerta-esfriando" : ""}>
-          {deal.esfriando && "⚠ "}
+        <span className={deal.parado ? "alerta-parado" : ""}>
+          {deal.parado && "⚠ "}
           {formatarDias(deal.dias_aberto)}
         </span>
       </div>

@@ -9,16 +9,18 @@ from dataclasses import asdict, dataclass
 
 import pandas as pd
 
-from app.dados.carregador import ETAPA_GANHO, ETAPAS_FECHADAS, carregar_deals
+from app.dados.carregador import carregar_deals
 from app.servicos.pontuacao import (
     PRIORIDADE_ALTA,
     PRIORIDADE_BAIXA,
     PRIORIDADE_MEDIA,
+    SITUACAO_ATIVO,
     explicar_deal,
-    explicar_fatores,
+    explicar_partes,
     pontuar_deals_abertos,
     sugerir_acao,
 )
+from app.servicos.validacao import executar_validacao
 
 
 @dataclass
@@ -70,6 +72,7 @@ def _para_resumo(deal: pd.Series) -> dict:
     return {
         "id": deal["opportunity_id"],
         "etapa": deal["deal_stage"],
+        "situacao": deal["situacao"],
         "vendedor": deal["sales_agent"],
         "manager": deal["manager"],
         "escritorio": deal["regional_office"],
@@ -83,7 +86,7 @@ def _para_resumo(deal: pd.Series) -> dict:
         "dias_aberto": int(dias) if dias is not None else None,
         "score": int(deal["score"]),
         "prioridade": deal["prioridade"],
-        "esfriando": bool(deal["esfriando"]),
+        "parado": bool(deal["parado"]),
         "motivo_principal": deal["motivo_principal"],
     }
 
@@ -95,7 +98,7 @@ def listar_deals(filtros: Filtros) -> list[dict]:
 
 
 def detalhar_deal(id_deal: str) -> dict | None:
-    """Deal com fatores, motivos e sugestão. None se não existir ou já estiver fechado."""
+    """Deal com partes do score, motivos e sugestão. None se não existir ou já estiver fechado."""
     deals = pontuar_deals_abertos()
     encontrados = deals[deals["opportunity_id"] == id_deal]
     if encontrados.empty:
@@ -104,7 +107,7 @@ def detalhar_deal(id_deal: str) -> dict | None:
     deal = encontrados.iloc[0]
     return {
         **_para_resumo(deal),
-        "fatores": [asdict(f) for f in explicar_fatores(deal)],
+        "partes": [asdict(p) for p in explicar_partes(deal)],
         "motivos": [{"texto": m.texto, "tipo": m.tipo} for m in explicar_deal(deal)],
         "sugestao": sugerir_acao(deal),
     }
@@ -113,25 +116,12 @@ def detalhar_deal(id_deal: str) -> dict | None:
 def montar_resumo(filtros: Filtros) -> dict:
     """KPIs do topo da tela para o recorte filtrado."""
     abertos = _aplicar_filtros(pontuar_deals_abertos(), filtros)
-
-    # Taxa de vitória: histórico de deals fechados do mesmo recorte
-    # (prioridade e busca não se aplicam a deals fechados).
-    filtros_historico = Filtros(
-        vendedor=filtros.vendedor,
-        manager=filtros.manager,
-        escritorio=filtros.escritorio,
-        produto=filtros.produto,
-    )
-    todos = carregar_deals()
-    fechados = _aplicar_filtros(todos[todos["deal_stage"].isin(ETAPAS_FECHADAS)], filtros_historico)
-    taxa = float((fechados["deal_stage"] == ETAPA_GANHO).mean()) if len(fechados) else 0.0
-
     return {
         "total_abertos": len(abertos),
-        "valor_esperado_total": round(float(abertos["valor_esperado"].sum()), 2),
         "qtd_prioridade_alta": int((abertos["prioridade"] == PRIORIDADE_ALTA).sum()),
-        "qtd_esfriando": int(abertos["esfriando"].sum()),
-        "taxa_vitoria": round(taxa, 4),
+        "qtd_ativos": int((abertos["situacao"] == SITUACAO_ATIVO).sum()),
+        "qtd_parados": int(abertos["parado"].sum()),
+        "valor_esperado_total": round(float(abertos["valor_esperado"].sum()), 2),
     }
 
 
@@ -148,4 +138,16 @@ def opcoes_filtro() -> dict:
         "escritorios": unicos("regional_office"),
         "produtos": unicos("product"),
         "prioridades": [PRIORIDADE_ALTA, PRIORIDADE_MEDIA, PRIORIDADE_BAIXA],
+    }
+
+
+def resumir_validacao() -> dict:
+    """Resultado consolidado do backtest, no formato da API."""
+    validacao = executar_validacao()
+    return {
+        "datas_corte": [c["data_corte"] for c in validacao["cortes"]],
+        "parados": validacao["parados"],
+        "parados_fechados_depois": validacao["parados_fechados_depois"],
+        "por_prioridade": validacao["por_prioridade"],
+        "atributos": validacao["atributos"],
     }

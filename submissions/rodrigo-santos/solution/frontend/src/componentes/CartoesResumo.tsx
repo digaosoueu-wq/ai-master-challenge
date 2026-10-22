@@ -1,7 +1,7 @@
 /** Números principais do recorte filtrado, no topo da tela. */
 
 import type { Resumo } from "../tipos";
-import { formatarMoedaCompacta, formatarNumero, formatarPorcentagem } from "../utils/formatadores";
+import { formatarMoedaCompacta, formatarNumero } from "../utils/formatadores";
 
 interface Props {
   resumo: Resumo | null;
@@ -9,33 +9,33 @@ interface Props {
 
 export default function CartoesResumo({ resumo }: Props) {
   // Enquanto carrega, mostra "–" para manter o layout estável.
-  const valor = (texto: string | number) => (resumo ? texto : "–");
+  const numero = (valor: number | undefined) => (resumo ? formatarNumero(valor ?? 0) : "–");
 
   return (
     <section className="cartoes-resumo">
       <div className="cartao-resumo">
         <span className="rotulo">Negócios abertos</span>
-        <strong>{valor(formatarNumero(resumo?.total_abertos ?? 0))}</strong>
+        <strong>{numero(resumo?.total_abertos)}</strong>
       </div>
       <div className="cartao-resumo destaque-alta">
         <span className="rotulo">Prioridade alta</span>
-        <strong>{valor(resumo?.qtd_prioridade_alta ?? 0)}</strong>
+        <strong>{numero(resumo?.qtd_prioridade_alta)}</strong>
         <span className="dica">Foque nestes primeiro</span>
       </div>
-      <div className="cartao-resumo destaque-esfriando">
-        <span className="rotulo">Esfriando</span>
-        <strong>{valor(formatarNumero(resumo?.qtd_esfriando ?? 0))}</strong>
-        <span className="dica">Abertos há mais tempo que o normal</span>
+      <div className="cartao-resumo">
+        <span className="rotulo">Em negociação ativa</span>
+        <strong>{numero(resumo?.qtd_ativos)}</strong>
+        <span className="dica">Dentro do prazo em que os negócios se resolvem</span>
+      </div>
+      <div className="cartao-resumo destaque-parado">
+        <span className="rotulo">Parados</span>
+        <strong>{numero(resumo?.qtd_parados)}</strong>
+        <span className="dica">Fora do padrão: atualize ou encerre</span>
       </div>
       <div className="cartao-resumo">
         <span className="rotulo">Valor esperado</span>
-        <strong>{valor(formatarMoedaCompacta(resumo?.valor_esperado_total ?? 0))}</strong>
-        <span className="dica">Soma de valor × chance</span>
-      </div>
-      <div className="cartao-resumo">
-        <span className="rotulo">Taxa de vitória</span>
-        <strong>{valor(formatarPorcentagem(resumo?.taxa_vitoria ?? 0))}</strong>
-        <span className="dica">Histórico de negócios fechados</span>
+        <strong>{resumo ? formatarMoedaCompacta(resumo.valor_esperado_total) : "–"}</strong>
+        <span className="dica">Valor × chance, sem contar os parados</span>
       </div>
     </section>
   );
