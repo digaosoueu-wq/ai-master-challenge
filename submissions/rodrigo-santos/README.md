@@ -132,7 +132,7 @@ Para desenvolver a tela com Node.js, rodar os testes (30) ou resolver problemas 
 3. **Versão 1:** backend, API, frontend e testes. O Claude subiu os servidores, testou a API e conferiu a tela por captura.
 4. **Iteração de explicabilidade:** cobrei que o vendedor precisa entender por que uma nota é alta e outra baixa. Vieram os pontos por parte que somam a nota, o motivo principal no cartão e a tela "Como funciona a pontuação".
 5. **Iteração "roda em qualquer máquina":** exigi que quem recebesse o código conseguisse rodar sem erro. O Claude clonou o repositório do zero e testou em Python 3.10, 3.12, 3.13 e 3.14 e no navegador, encontrando e corrigindo problemas reais (abaixo).
-6. **Iteração de validação:** pedi o backtest para dar clareza ao projeto. Ele mostrou que parte da lógica estava errada. Decidi refazer a pontuação com base na evidência, em vez de só registrar a falha como limitação.
+6. **Iteração de validação:** o Claude apontou que a pontuação nunca tinha sido validada e propôs um backtest; aceitei, para dar clareza ao projeto. Ele mostrou que parte da lógica estava errada. Decidi refazer a pontuação com base na evidência, em vez de só registrar a falha como limitação.
 7. **Submissão:** fork, branch e estrutura `submissions/rodrigo-santos/`, seguindo o guia do desafio.
 
 ### Onde a IA errou e como corrigi
@@ -160,7 +160,7 @@ Para desenvolver a tela com Node.js, rodar os testes (30) ou resolver problemas 
 - **As decisões de stack e de idioma**, pensando em quem vai manter o código.
 - **A exigência de explicabilidade**, que levou à segunda versão.
 - **A exigência de que rodasse de primeira para o avaliador**, que revelou incompatibilidades reais.
-- **A decisão de validar e de refazer a lógica quando a validação a contrariou**, em vez de entregar a versão que "parecia certa". É a diferença entre a minha entrega e colar o enunciado numa IA.
+- **A decisão de investir na validação proposta e de refazer a lógica quando ela a contrariou**, em vez de entregar a versão que "parecia certa". É a diferença entre a minha entrega e colar o enunciado numa IA.
 - **A condução do processo em etapas** (solução → git → validação → documentação) e a revisão de cada entrega antes de seguir.
 
 ---
