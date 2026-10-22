@@ -1,16 +1,19 @@
 """
 Ponto de entrada da API.
 
-Rodar em desenvolvimento (dentro da pasta backend/):
-    uvicorn app.main:app --reload
+Rodar (dentro da pasta backend/):
+    python -m uvicorn app.main:app --reload
 
-Documentação interativa: http://localhost:8000/docs
+- Tela:                        http://localhost:8000   (se frontend/dist existir)
+- Documentação interativa:     http://localhost:8000/docs
 """
 
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import config
 from app.rotas import pipeline, resumo
@@ -41,3 +44,17 @@ app.add_middleware(
 
 app.include_router(pipeline.roteador)
 app.include_router(resumo.roteador)
+
+
+# Serve a tela compilada, se ela existir. Registrado depois das rotas da API
+# para que /api/* continue respondendo normalmente.
+if (config.PASTA_FRONTEND_COMPILADO / "index.html").exists():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=config.PASTA_FRONTEND_COMPILADO / "assets"),
+        name="assets",
+    )
+
+    @app.get("/", include_in_schema=False)
+    def tela():
+        return FileResponse(config.PASTA_FRONTEND_COMPILADO / "index.html")

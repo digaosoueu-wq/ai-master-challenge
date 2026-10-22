@@ -12,32 +12,73 @@ dados/     CSVs de origem (accounts, products, sales_pipeline, sales_teams)
 
 ## Como rodar
 
-Pré-requisitos: Python 3.10+ e Node 18+.
+**Pré-requisito:** Python 3.10 ou mais novo (testado em 3.10, 3.12, 3.13 e 3.14).
+Node.js só é necessário para alterar a tela (opção B).
 
-**1. Backend** (terminal 1)
+Todos os comandos abaixo partem da pasta `solution/`.
 
-```bash
+### Opção A — Ver a aplicação (só Python, recomendado)
+
+A tela já vem compilada em `frontend/dist`, e a própria API a serve.
+
+**Windows (PowerShell ou CMD)**
+
+```
 cd backend
 python -m venv .venv
-.venv\Scripts\activate          # Windows  (Linux/Mac: source .venv/bin/activate)
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m uvicorn app.main:app
 ```
 
-API em http://localhost:8000 — documentação interativa em http://localhost:8000/docs.
+**Mac / Linux**
 
-**2. Frontend** (terminal 2)
+```
+cd backend
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn app.main:app
+```
 
-```bash
+Quando aparecer `Application startup complete`, abra **http://localhost:8000**.
+A documentação da API fica em http://localhost:8000/docs. Para parar, use `Ctrl+C`.
+
+> Os comandos chamam o Python de dentro do `.venv` diretamente, então não é preciso
+> "ativar" o ambiente virtual (o que às vezes é bloqueado no PowerShell).
+
+### Opção B — Desenvolver a tela (Python + Node.js 18 ou mais novo)
+
+Deixe a API da opção A rodando e, em **outro terminal**, a partir de `solution/`:
+
+```
 cd frontend
 npm install
 npm run dev
 ```
 
-Abra http://localhost:5173. O Vite repassa as chamadas `/api` para o backend
-(ver `frontend/vite.config.ts`). Se a porta 5173 estiver ocupada, o Vite usa a próxima livre.
+Abra o endereço que o Vite mostrar (normalmente http://localhost:5173). As alterações no
+código aparecem na hora. As chamadas `/api` são repassadas para a API na porta 8000
+(ver `frontend/vite.config.ts`).
 
-**Testes do backend:** `cd backend && pytest`
+Depois de alterar a tela, rode `npm run build` para atualizar `frontend/dist`
+(a versão servida na opção A).
+
+### Testes
+
+```
+cd backend
+.venv\Scripts\python -m pytest        # Windows
+.venv/bin/python -m pytest             # Mac / Linux
+```
+
+### Problemas comuns
+
+| Sintoma | Solução |
+|---|---|
+| `python` não é reconhecido (Windows) | Use `py` no lugar de `python` no comando que cria o `.venv`, ou instale o Python em python.org marcando "Add python.exe to PATH". |
+| Erro de "Long Path" ao instalar (Windows) | O caminho da pasta ficou longo demais. Clone o repositório numa pasta curta, como `C:\projetos\`. |
+| `address already in use` / porta 8000 ocupada | Outro programa usa a porta. Rode com `--port 8001` e abra http://localhost:8001. Na opção B, ajuste também a porta em `frontend/vite.config.ts`. |
+| A tela mostra "Não foi possível carregar o pipeline" | A API não está rodando, ou não está na porta 8000. Veja o terminal da API. |
+| http://localhost:8000 mostra `{"detail":"Not Found"}` | A pasta `frontend/dist` não existe. Rode `npm install` e `npm run build` em `frontend/` (ou use a opção B). |
 
 ## Como funciona o score
 

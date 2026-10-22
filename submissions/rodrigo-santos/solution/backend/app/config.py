@@ -12,11 +12,15 @@ from pathlib import Path
 # Caminhos
 # ---------------------------------------------------------------------------
 
-# Pasta raiz do projeto (testeAiMaster/), dois níveis acima deste arquivo.
+# Pasta raiz do projeto (solution/), dois níveis acima deste arquivo.
 PASTA_RAIZ = Path(__file__).resolve().parents[2]
 
 # Pasta com os CSVs de origem.
 PASTA_DADOS = PASTA_RAIZ / "dados"
+
+# Tela já compilada (gerada por `npm run build` no frontend). Se existir,
+# a própria API serve a tela em http://localhost:8000, sem precisar de Node.
+PASTA_FRONTEND_COMPILADO = PASTA_RAIZ / "frontend" / "dist"
 
 # ---------------------------------------------------------------------------
 # Data de referência ("hoje")

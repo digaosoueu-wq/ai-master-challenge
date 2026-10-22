@@ -50,3 +50,10 @@ def test_detalhe_mostra_pontos_que_somam_o_score():
     id_deal = cliente.get("/api/pipeline").json()["deals"][-1]["id"]
     deal = cliente.get(f"/api/deals/{id_deal}").json()
     assert sum(f["pontos"] for f in deal["fatores"]) == deal["score"]
+
+
+def test_tela_compilada_e_servida_pela_api():
+    """A tela em frontend/dist precisa abrir em http://localhost:8000 (modo só Python)."""
+    resposta = cliente.get("/")
+    assert resposta.status_code == 200
+    assert "Priorização de Deals" in resposta.text

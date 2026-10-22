@@ -22,20 +22,29 @@ Código, dados e instruções de setup em [`solution/`](solution/). Detalhes da 
 
 ### Como rodar
 
-```bash
-# Terminal 1 — API (Python 3.10+)
-cd solution/backend
-python -m venv .venv && .venv\Scripts\activate    # Linux/Mac: source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload                     # http://localhost:8000/docs
+Só é preciso **Python 3.10 ou mais novo** (testado em 3.10, 3.12, 3.13 e 3.14). A tela já vem compilada e é servida pela própria API.
 
-# Terminal 2 — Tela (Node 18+)
-cd solution/frontend
-npm install
-npm run dev                                        # http://localhost:5173
+**Windows (PowerShell ou CMD)**, a partir desta pasta:
+
+```
+cd solution\backend
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m uvicorn app.main:app
 ```
 
-Testes: `cd solution/backend && pytest` (21 testes).
+**Mac / Linux**, a partir desta pasta:
+
+```
+cd solution/backend
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn app.main:app
+```
+
+Abra **http://localhost:8000**.
+
+Para desenvolver a tela com Node.js, rodar os testes (22) ou resolver problemas comuns, veja [`solution/README.md`](solution/README.md#como-rodar).
 
 ### Abordagem
 
